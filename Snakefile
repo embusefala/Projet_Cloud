@@ -3,10 +3,10 @@ configfile: "config/config.yaml"
 ##### load rules #####
 rule all:
 	input:
-		expand("results/fastqc_init/{sample}_fastqc.zip", sample = config["samples"]),
-		expand("results/fastqc_init/{sample}_fastqc.html", sample = config["samples"]),
-		expand("results/cutadapt/{samplename}1_cleaned.fastq.gz", sample = config["samples"]),
-		expand("results/cutadapt/{samplename}2_cleaned.fastq.gz", sample = config["samples"])
+		"results/MACS2/cult_Oh*_peaks.xls",
+		"results/MACS2/cult_24h*_peaks.xls",
+		"results/MACS2/cult_0h*_peaks.narrowPeak",
+		"results/MACS2/cult_24h*_peaks.narrowPeak"
 
 rule unzip:
 	input:
@@ -55,9 +55,9 @@ rule cutadapt:
 
 rule bowtie2 alignement:
 	input:
-		genome="data/mydatalocal/fasta/all.fasta"
-		r1="results/cutadapt/{sample}1_*"
-		r2="results/cutadapt/{sample}2_*"
+		genome="data/mydatalocal/fasta/all.fasta",
+		r1="results/cutadapt/{sample}1_*",
+		r2="results/cutadapt/{sample}2_*",
 	output:
 		"results/bowtie2/{sample}_cleaned_mapped_sorted_q2.bam"
 
@@ -73,8 +73,8 @@ rule bowtie2 alignement:
 
 rule samtools Indexing mapped sorted bam file:
 	input:
-		index="data/mydatalocal/bowtie2"
-		bam="results/bowtie2/{sample}_cleaned_mapped_sorted_q2.bam"
+		index="data/mydatalocal/bowtie2",
+		bam="results/bowtie2/{sample}_cleaned_mapped_sorted_q2.bam",
 	output:
 
 
@@ -95,32 +95,61 @@ rule samtools Statistics on mapping:
 		"""
 		samtools idxstats {input} > {output}
 		"""
-rule picard:
+rule picard remove duplicates:
 	input:
+		"results/bowtie2/{sample}_cleaned_mapped_sorted_q2.bam"
 	output:
-		"results/picard/{sample}.nondup.bam"
+		bam="results/picard/{sample}_nondup.bam",
+		met="results/picard/{sample}_dups.txt"
 	conda:
 		"env.yaml"
 	threads: 6
 	shell:
 		"""
-		java --
+		java -jar /opt/apps/picard-2.18.25/picard.jar MarkDuplicates \
+		I={input} \
+		O={output.bam} \
+		M={output.met} \
+		REMOVE_DUPLICATES=true
 		"""
-rule deeptools:
+
+rule samtools Indexing mapped sorted bam file:
 	input:
+		"results/picard/{sample}_nondup.bam"
 	output:
 	conda:
 		"env.yaml"
-	threads:
 	shell:
+	"""
+	samtools index -b {input}
+	"""
+rule samtools Statistics on mapping:
+	input:
+		"results/picard/{sample}_nondup.bam"
+	output:
+		"results/picard/{sample}.log"
+	conda:
+		"env.yaml"
+	shell:
+	"""
+	samtools idxstats {input} > {output}
+	"""
 
 rule MACS2:
 	input:
+		cult_Oh="results/picard/*Oh_R*__cleaned_mapped_sorted_q2_nodup.bam",
+		cult_24h="results/picard/*24h_R*__cleaned_mapped_sorted_q2_nodup.bam"
 	output:
+		"results/MACS2/cult_Oh*_peaks.xls",
+		"results/MACS2/cult_24h*_peaks.xls",
+		"results/MACS2/cult_0h*_peaks.narrowPeak",
+		"results/MACS2/cult_24h*_peaks.narrowPeak"
 	conda:
 		"env.yaml"
-	threads:
 	shell:
+		"""
+		macs2 callpeak -t {input.cult_24h} -c {input.cult_0h} -f BAM -g 'mm' -n
+		"""
 
 rule bedtools:
 	input:
@@ -129,3 +158,4 @@ rule bedtools:
 		"env.yaml"
 	threads:
 	shell:
+
